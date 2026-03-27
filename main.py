@@ -785,7 +785,7 @@ try:
     from fracoes import FracoesGameScreen, TelaFimFracoes
     from sudoku_logic import TelaSudoku, TelaDefinicaoSudoku
     from fracoes1 import TelaFracoesInfo, TelaFracoesRepresentacoes, TelaFracoesExplicacoes, TelaFracoesPropriedades
-    from jogo_geometria import GeometriaGameScreen
+    from jogo_geometria import GeometriaGameScreen, TelaFimGeometria
     from jogo_estatistica import EstatisticaGameScreen,TelaFimEstatistica
 except ImportError as e:
     print(f"[AVISO] Alguns jogos padrão não foram encontrados: {e}")
@@ -880,9 +880,11 @@ class TesteApp(MDApp):
         sm.add_widget(AlgebraGameScreen(name="algebra"))
         sm.add_widget(TelaFimAlgebra(name="fim_algebra"))
         sm.add_widget(FracoesGameScreen(name="fracoes"))
+        sm.add_widget(TelaFimFracoes(name="fim_fracoes"))
         sm.add_widget(TelaSudoku(name="sudoku"))
         sm.add_widget(TelaDefinicaoSudoku(name="definicao_sudoku"))
         sm.add_widget(GeometriaGameScreen(name="jogo_geometria"))
+        sm.add_widget(TelaFimGeometria(name="fim_geometria"))
         sm.add_widget(EstatisticaGameScreen(name="jogo_estatistica"))
         sm.add_widget(JogoDaVelhaScreen(name="velha"))
         sm.add_widget(BolicheMatematicoScreen(name="boliche_matematico"))

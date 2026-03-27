@@ -25,6 +25,7 @@ from kivy.uix.modalview import ModalView
 from kivymd.uix.dialog import MDDialog
 from kivymd.uix.menu import MDDropdownMenu
 
+from sistema_erros import GerenciadorErros
 import banco_dados
 
 # --- CORES GERAIS DO APP ---
@@ -318,6 +319,8 @@ class EstatisticaGameScreen(Screen):
         self.lbl_pts.text = "0 PTS"
         self.gerar_fase()
 
+        self.gerenciador_erros = GerenciadorErros()
+
     def atualizar_hud(self, titulo, instrucao):
         self.lbl_titulo.text = f"{titulo.upper()} ({self.sub_dificuldade.upper()})"
         self.lbl_instrucao.text = instrucao
@@ -328,7 +331,7 @@ class EstatisticaGameScreen(Screen):
         self.container.disabled = False
 
         if self.pergunta_atual > self.total_perguntas:
-            self.encerrar()
+            self.encerrar_jogo()
             return
 
         if self.modo_jogo == "primario":
@@ -408,6 +411,8 @@ class EstatisticaGameScreen(Screen):
             msg = f"Gráfico Perfeito!\nA barra maior representa a MODA.\nNeste caso, a Moda teve {self.maior_valor} votos."
             self.feedback(True, msg)
         else:
+            # --- ADICIONADO: Registro de erro de Gráficos/Moda ---
+            self.gerenciador_erros.registrar_erro("moda")
             self.feedback(False, "O gráfico não bate com os dados da caixa. Volte e conte os itens com cuidado!")
 
     # =========================================================================
@@ -470,6 +475,8 @@ class EstatisticaGameScreen(Screen):
                 nome_calc = "Mediana" if self.pede_mediana else "Média"
                 self.feedback(True, f"Matemática pura! A {nome_calc} é exatamente {self.resposta_calc}.")
             else:
+                # --- ADICIONADO: Registro de erro de Média/Mediana ---
+                self.gerenciador_erros.registrar_erro("media")
                 self.feedback(False, f"A resposta correta era {self.resposta_calc}. Tente refazer o cálculo mentalmente.")
         except:
             self.mostrar_dialogo_simples("Erro", "Digite um número válido!")
@@ -570,6 +577,8 @@ class EstatisticaGameScreen(Screen):
         if abs(valor_jogador - self.target_prob) <= 2:
             self.feedback(True, f"Montagem Perfeita! A cor {self.target_cor_nome} ficou com a área exigida.")
         else:
+            # --- ADICIONADO: Registro de erro de Probabilidade ---
+            self.gerenciador_erros.registrar_erro("probabilidade")
             self.feedback(False, f"Incorreto. Você deixou a cor {self.target_cor_nome} com {valor_jogador}%.\nO objetivo era {self.target_prob}%.")
 
     # =========================================================================
@@ -608,13 +617,16 @@ class EstatisticaGameScreen(Screen):
         self.pergunta_atual += 1
         self.gerar_fase()
 
-    def encerrar(self):
-        if self.manager.has_screen("fim_estatistica"):
-            screen = self.manager.get_screen("fim_estatistica")
-            screen.atualizar_stats(self.pontuacao, self.erros, "00:00", f"{self.modo_jogo} ({self.sub_dificuldade})")
-            self.manager.current = "fim_estatistica"
-        else:
-            self.voltar(None)
+    def encerrar_jogo(self):
+        # PEGA A MENSAGEM INTELIGENTE
+        mensagem_dica = self.gerenciador_erros.obter_dica_final()
+
+        tela_fim = self.manager.get_screen("fim_estatistica")
+
+        # Você manda a mensagem extra lá pro atualizar_stats da tela de fim
+        tela_fim.atualizar_stats(self.pontuacao, self.erros, "00:00", f"{self.modo_jogo} ({self.sub_dificuldade})", mensagem_dica)
+        self.manager.current = "fim_estatistica"
+
 
     def voltar(self, instance=None):
         if self.dialog: self.dialog.dismiss()
@@ -646,8 +658,12 @@ class TelaFimEstatistica(Screen):
         self.resumo_box = MDBoxLayout(orientation='vertical', spacing=dp(5), size_hint_y=None, height=dp(80))
         self.acertos_lbl = MDLabel(text="Pontos: 0", halign="center", font_style="H5", theme_text_color="Custom", text_color=COR_VERDE)
         self.erros_lbl = MDLabel(text="Erros: 0", halign="center", font_style="Subtitle1", theme_text_color="Custom", text_color=COR_TEXTO)
+
+        self.dica_lbl = MDLabel(text="", halign="center", font_style="Caption", bold=True, theme_text_color="Custom", text_color=(0.9, 0.4, 0.1, 1))
+
         self.resumo_box.add_widget(self.acertos_lbl)
         self.resumo_box.add_widget(self.erros_lbl)
+        self.resumo_box.add_widget(self.dica_lbl)
 
         self.input_nome = MDTextField(hint_text="Nome do Estatístico", icon_right="account", size_hint_x=1, pos_hint={'center_x': 0.5})
 
@@ -667,7 +683,7 @@ class TelaFimEstatistica(Screen):
         layout.add_widget(card)
         self.add_widget(layout)
 
-    def atualizar_stats(self, pontos, erros, tempo, dificuldade):
+    def atualizar_stats(self, pontos, erros, tempo, dificuldade, mensagem_dica=""):
         self.dados_partida = {"acertos": pontos, "erros": erros, "tempo": tempo, "dificuldade": dificuldade.capitalize()}
         self.acertos_lbl.text = f"Pontuação Final: {pontos}"
         self.erros_lbl.text = f"Erros Cometidos: {erros}"
@@ -675,6 +691,7 @@ class TelaFimEstatistica(Screen):
         self.status_lbl.text = ""
         self.btn_salvar.disabled = False
         self.btn_salvar.text = "SALVAR RESULTADO"
+        self.dica_lbl.text = mensagem_dica
 
     def acao_salvar(self, instance):
         nome = self.input_nome.text.strip()

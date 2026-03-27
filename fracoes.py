@@ -25,6 +25,7 @@ from kivy.uix.modalview import ModalView
 from kivymd.uix.dialog import MDDialog
 from kivymd.uix.menu import MDDropdownMenu
 
+from sistema_erros import GerenciadorErros
 import banco_dados
 
 # --- PALETA DE CORES ---
@@ -155,16 +156,17 @@ class FracoesGameScreen(Screen):
         super().__init__(**kwargs)
         self.modo_jogo = "primario"
         self.sub_dificuldade = "facil"
-
         self.pergunta_atual = 1
         self.total_perguntas = 5
         self.acertos = 0
         self.erros = 0
         self.pontuacao = 0
-
         self.dicas_disponiveis = 3
         self.menu_dificuldade = None
         self.dialog = None
+
+        # Inicializa o gerenciador aqui para evitar erros de atributo
+        self.gerenciador_erros = GerenciadorErros()
 
         self._setup_ui()
 
@@ -287,6 +289,10 @@ class FracoesGameScreen(Screen):
         self.erros = 0
         self.dicas_disponiveis = 3
         self.lbl_pts.text = "0 PTS"
+
+        # Reinicia o banco de erros da rodada atual
+        self.gerenciador_erros = GerenciadorErros()
+
         self.gerar_fase()
 
     def atualizar_hud(self, titulo, instrucao):
@@ -368,6 +374,8 @@ class FracoesGameScreen(Screen):
         if marcados == n_alvo:
             self.feedback(True, f"Perfeito! Você construiu a fração {n_alvo}/{d_alvo}.")
         else:
+            # REGISTRA ERRO: Categoria Visual
+            self.gerenciador_erros.registrar_erro("fracao_visual")
             self.feedback(False, f"Você selecionou {marcados} partes. O pedido era {n_alvo}.")
 
     # =========================================================================
@@ -437,22 +445,27 @@ class FracoesGameScreen(Screen):
     def verificar_fundamental(self, instance):
         n = int(self.slider_n.value)
         d = int(self.slider_d.value)
-        if d == 0: d = 1 # Evita zero division error
+        if d == 0: d = 1
         f_jogador = Fraction(n, d)
 
         if f_jogador == self.alvo_f:
             if self.forcar_irredutivel:
-                # Checa se realmente é a fração mínima usando as propriedades nativas do módulo Fraction
                 if f_jogador.denominator == d and f_jogador.numerator == n:
                     self.feedback(True, f"Perfeito! {n}/{d} é a forma irredutível.")
                 else:
+                    # REGISTRA ERRO: Simplificação (chegou perto mas não reduziu tudo)
+                    self.gerenciador_erros.registrar_erro("simplificacao")
                     self.feedback(False, f"São equivalentes, mas {n}/{d} AINDA dá pra simplificar mais!")
             else:
                 if d < self.alvo_d_original:
                     self.feedback(True, f"Genial! {n}/{d} é equivalente e está simplificada.")
                 else:
-                    self.feedback(False, "Elas são equivalentes, mas você não simplificou (o denominador precisa ser menor).")
+                    # REGISTRA ERRO: Simplificação (não diminuiu o denominador)
+                    self.gerenciador_erros.registrar_erro("simplificacao")
+                    self.feedback(False, "Elas são equivalentes, mas você não simplificou.")
         else:
+            # REGISTRA ERRO: Simplificação/Equivalência (errou o cálculo básico)
+            self.gerenciador_erros.registrar_erro("simplificacao")
             self.feedback(False, "Os volumes visuais não batem. As frações não são equivalentes.")
 
     # =========================================================================
@@ -546,6 +559,8 @@ class FracoesGameScreen(Screen):
         if f_jogador == self.f_resp:
             self.feedback(True, f"Matemática Perfeita! A resposta é {self.f_resp.numerator}/{self.f_resp.denominator}.")
         else:
+            # REGISTRA ERRO: Operação com Fração
+            self.gerenciador_erros.registrar_erro("operacao_fracao")
             self.feedback(False, f"Incorreto. A resposta exata era {self.f_resp.numerator}/{self.f_resp.denominator}.")
 
     # =========================================================================
@@ -583,12 +598,20 @@ class FracoesGameScreen(Screen):
         self.gerar_fase()
 
     def encerrar_jogo(self):
-        if self.manager.has_screen("fim_fracoes"):
-            tela = self.manager.get_screen("fim_fracoes")
-            tela.atualizar_stats(self.pontuacao, self.erros, "00:00", f"{self.modo_jogo} ({self.sub_dificuldade})")
-            self.manager.current = "fim_fracoes"
-        else:
-            self.voltar()
+        # PEGA A DICA BASEADA NO QUE MAIS ERROU
+        mensagem_dica = self.gerenciador_erros.obter_dica_final()
+
+        tela_fim = self.manager.get_screen("fim_fracoes")
+
+        # Passa a dica para a tela final
+        tela_fim.atualizar_stats(
+            self.pontuacao,
+            self.erros,
+            "00:00",
+            f"{self.modo_jogo} ({self.sub_dificuldade})",
+            mensagem_dica
+        )
+        self.manager.current = "fim_fracoes"
 
     def voltar(self, instance=None):
         if self.dialog: self.dialog.dismiss()
@@ -620,8 +643,12 @@ class TelaFimFracoes(Screen):
         self.resumo_box = MDBoxLayout(orientation='vertical', spacing=dp(5), size_hint_y=None, height=dp(80))
         self.acertos_lbl = MDLabel(text="Pontos: 0", halign="center", font_style="H5", theme_text_color="Custom", text_color=COR_VERDE)
         self.erros_lbl = MDLabel(text="Erros: 0", halign="center", font_style="Subtitle1", theme_text_color="Custom", text_color=COR_TEXTO)
+
+        self.dica_lbl = MDLabel(text="", halign="center", font_style="Caption", bold=True, theme_text_color="Custom", text_color=(0.9, 0.4, 0.1, 1))
+
         self.resumo_box.add_widget(self.acertos_lbl)
         self.resumo_box.add_widget(self.erros_lbl)
+        self.resumo_box.add_widget(self.dica_lbl)
 
         self.input_nome = MDTextField(hint_text="Seu Nome para o Ranking", icon_right="account", size_hint_x=1, pos_hint={'center_x': 0.5})
 
@@ -641,7 +668,7 @@ class TelaFimFracoes(Screen):
         layout.add_widget(card)
         self.add_widget(layout)
 
-    def atualizar_stats(self, pontos, erros, tempo, dificuldade):
+    def atualizar_stats(self, pontos, erros, tempo, dificuldade, mensagem_dica=""):
         self.dados_partida = {"acertos": pontos, "erros": erros, "tempo": tempo, "dificuldade": dificuldade.capitalize()}
         self.acertos_lbl.text = f"Pontuação Final: {pontos}"
         self.erros_lbl.text = f"Erros Cometidos: {erros}"
@@ -649,6 +676,15 @@ class TelaFimFracoes(Screen):
         self.status_lbl.text = ""
         self.btn_salvar.disabled = False
         self.btn_salvar.text = "SALVAR RESULTADO"
+        self.dica_lbl.text = mensagem_dica
+
+    def atualizar_stats(self, pontos, erros, tempo, dificuldade, mensagem_dica=""):
+        self.dados_partida = {"acertos": pontos, "erros": erros, "tempo": tempo, "dificuldade": dificuldade.capitalize()}
+        self.acertos_lbl.text = f"Pontuação Final: {pontos}"
+        self.erros_lbl.text = f"Erros Cometidos: {erros}"
+
+        # MOSTRA A DICA NA TELA
+        self.dica_lbl.text = mensagem_dica
 
     def acao_salvar(self, instance):
         nome = self.input_nome.text.strip()
